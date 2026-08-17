@@ -85,7 +85,8 @@ function createApiServer(client, { apiKey } = {}) {
 
             if (editMatch) {
                 if (typeof body.caption !== 'string') throw new TypeError('caption is required');
-                const result = await client.editPost(editMatch[2], { caption: body.caption });
+                const kind = editMatch[1] === 'reels' ? 'reel' : 'p';
+                const result = await client.editPost(`${kind}/${editMatch[2]}`, { caption: body.caption });
                 return send(200, { type: editMatch[1] === 'reels' ? 'reel' : 'post', ...result });
             }
 

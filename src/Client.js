@@ -309,18 +309,28 @@ class Client extends EventEmitter {
 
         const reference = String(post ?? '').trim();
         const match = reference.match(
-            /(?:https?:\/\/)?(?:www\.)?instagram\.com\/(p|reel)\/([A-Za-z0-9_-]+)\/?(?:[?#].*)?$/i,
+            /^(?:(?:https?:\/\/)?(?:www\.)?instagram\.com\/)?(p|reel)\/([A-Za-z0-9_-]+)\/?(?:[?#].*)?$/i,
         );
         const kind = match?.[1]?.toLowerCase() || 'p';
         const shortcode = match?.[2] || (/^[A-Za-z0-9_-]+$/.test(reference) ? reference : null);
         if (!shortcode) throw new TypeError('post must be an Instagram post URL or shortcode');
 
-        await this.pupPage.goto(`https://www.instagram.com/${kind}/${shortcode}/`, {
+        const instagramKind = 'p';
+        await this.pupPage.goto(`https://www.instagram.com/${instagramKind}/${shortcode}/`, {
             waitUntil: 'domcontentloaded',
             timeout: 0,
         });
-        await this._clickControl(['Mais opções', 'More options']);
-        await this._clickControl(['Editar', 'Edit'], '[role="menu"], [role="dialog"], body');
+        await this._clickControl(['Mais opções', 'More options', 'Mais', 'More'], 'body', 60000);
+        try {
+            await this._clickControl(['Editar', 'Edit'], '[role="menu"], [role="dialog"], body', 5000);
+        } catch {
+            await this._clickControl(
+                ['Gerir publicação', 'Manage post'],
+                '[role="menu"], [role="dialog"], body',
+                30000,
+            );
+            await this._clickControl(['Editar', 'Edit'], '[role="menu"], [role="dialog"], body', 30000);
+        }
 
         const captionBox = await this.pupPage.waitForSelector(
             '[role="dialog"] textarea, [role="dialog"] [contenteditable="true"][role="textbox"], [role="dialog"] [contenteditable="true"]',
@@ -331,24 +341,19 @@ class Client extends EventEmitter {
         await this.pupPage.keyboard.press('A');
         await this.pupPage.keyboard.up('Control');
         await this.pupPage.keyboard.press('Backspace');
-        if (caption) await this.pupPage.keyboard.sendCharacter(caption);
+        if (caption) await this.pupPage.keyboard.type(caption);
 
+        const editResponse = this.pupPage.waitForResponse(
+            (response) => response.request().method() === 'POST' && /\/api\/v1\/media\/[^/]+\/edit_media\/?(?:\?|$)/.test(response.url()),
+            { timeout: 60000 },
+        );
         await this._clickControl(
             ['Concluído', 'Done', 'Guardar', 'Save'],
             '[role="dialog"]',
             30000,
         );
-        await this.pupPage.waitForFunction(
-            (expected) => {
-                const text = document.body.innerText.toLowerCase();
-                const saved = /alterações guardadas|changes saved|post updated|publicação atualizada/.test(text);
-                const visibleDialog = [...document.querySelectorAll('[role="dialog"]')]
-                    .some((dialog) => dialog.getClientRects().length > 0);
-                return saved || (!visibleDialog && document.body.innerText.includes(expected));
-            },
-            { timeout: 60000 },
-            caption,
-        );
+        const response = await editResponse;
+        if (!response.ok()) throw new Error(`Instagram rejected the caption edit (${response.status()})`);
 
         const result = {
             id: shortcode,
@@ -557,6 +562,10 @@ class Client extends EventEmitter {
                 [...document.querySelectorAll(`${scope} a, ${scope} button, ${scope} [role="button"], ${scope} [role="menuitem"]`)].some(
                     (element) => {
                         const label = (element.textContent || '').trim().toLowerCase();
+                        const ariaLabel = element.getAttribute('aria-label')?.trim().toLowerCase();
+                        const title = element.getAttribute('title')?.trim().toLowerCase();
+                        const nestedLabel = element.querySelector('[aria-label]')?.getAttribute('aria-label')?.trim().toLowerCase();
+                        const nestedAlt = element.querySelector('[alt]')?.getAttribute('alt')?.trim().toLowerCase();
                         const svgLabel = element.querySelector('svg[aria-label]')
                             ?.getAttribute('aria-label')
                             ?.toLowerCase();
@@ -564,7 +573,7 @@ class Client extends EventEmitter {
                             element.getAttribute('aria-disabled') !== 'true' &&
                             !element.disabled &&
                             element.getClientRects().length > 0 &&
-                            (labels.includes(label) || labels.includes(svgLabel))
+                            (labels.includes(label) || labels.includes(ariaLabel) || labels.includes(title) || labels.includes(nestedLabel) || labels.includes(nestedAlt) || labels.includes(svgLabel))
                         );
                     },
                 ),
@@ -577,6 +586,10 @@ class Client extends EventEmitter {
                     ...document.querySelectorAll(`${scope} a, ${scope} button, ${scope} [role="button"], ${scope} [role="menuitem"]`),
                 ].find((candidate) => {
                     const label = (candidate.textContent || '').trim().toLowerCase();
+                    const ariaLabel = candidate.getAttribute('aria-label')?.trim().toLowerCase();
+                    const title = candidate.getAttribute('title')?.trim().toLowerCase();
+                    const nestedLabel = candidate.querySelector('[aria-label]')?.getAttribute('aria-label')?.trim().toLowerCase();
+                    const nestedAlt = candidate.querySelector('[alt]')?.getAttribute('alt')?.trim().toLowerCase();
                     const svgLabel = candidate.querySelector('svg[aria-label]')
                         ?.getAttribute('aria-label')
                         ?.toLowerCase();
@@ -584,7 +597,7 @@ class Client extends EventEmitter {
                         candidate.getAttribute('aria-disabled') !== 'true' &&
                         !candidate.disabled &&
                         candidate.getClientRects().length > 0 &&
-                        (labels.includes(label) || labels.includes(svgLabel))
+                        (labels.includes(label) || labels.includes(ariaLabel) || labels.includes(title) || labels.includes(nestedLabel) || labels.includes(nestedAlt) || labels.includes(svgLabel))
                     );
                 });
                 element.click();
