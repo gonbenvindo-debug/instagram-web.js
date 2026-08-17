@@ -341,29 +341,76 @@ class Client extends EventEmitter {
         await this.pupPage.keyboard.press('A');
         await this.pupPage.keyboard.up('Control');
         await this.pupPage.keyboard.press('Backspace');
-        if (caption) await this.pupPage.keyboard.type(caption);
+        if (caption) {
+            await this.pupPage.keyboard.type(caption);
+            await this.pupPage.evaluate((value) => {
+                const editor = document.querySelector('[role="dialog"] [contenteditable="true"][role="textbox"], [role="dialog"] [contenteditable="true"]');
+                editor?.dispatchEvent(new InputEvent('input', {
+                    bubbles: true,
+                    inputType: 'insertText',
+                    data: value,
+                }));
+            }, caption);
+        }
 
-        const editResponse = this.pupPage.waitForResponse(
-            (response) => response.request().method() === 'POST' && /\/api\/v1\/media\/[^/]+\/edit_media\/?(?:\?|$)/.test(response.url()),
-            { timeout: 60000 },
-        );
-        await this._clickControl(
-            ['Concluído', 'Done', 'Guardar', 'Save'],
-            '[role="dialog"]',
-            30000,
-        );
-        const response = await editResponse;
-        if (!response.ok()) throw new Error(`Instagram rejected the caption edit (${response.status()})`);
-
-        const result = {
-            id: shortcode,
-            reference: `${kind}/${shortcode}`,
-            caption,
-            status: 'edited',
-            editedAt: new Date().toISOString(),
+        const editRequestPattern = /\/api\/v1\/media\/[^/]+\/edit_media\/?(?:\?|$)/;
+        const editRequestHandler = (request) => {
+            if (request.method() === 'POST' && editRequestPattern.test(request.url())) {
+                let payload;
+                try {
+                    payload = JSON.parse(request.postData() || '{}');
+                } catch {
+                    payload = {};
+                }
+                payload.caption_text = caption;
+                request.continue({ postData: JSON.stringify(payload) }).catch(() => {});
+                return;
+            }
+            request.continue().catch(() => {});
         };
-        this.emit(Events.POST_EDITED, result);
-        return result;
+        let interceptionEnabled = false;
+        try {
+            await this.pupPage.setRequestInterception(true);
+            interceptionEnabled = true;
+            this.pupPage.on('request', editRequestHandler);
+            const editRequest = this.pupPage.waitForRequest(
+                (request) => request.method() === 'POST' && editRequestPattern.test(request.url()),
+                { timeout: 60000 },
+            );
+            const editResponse = this.pupPage.waitForResponse(
+                (response) => response.request().method() === 'POST' && editRequestPattern.test(response.url()),
+                { timeout: 60000 },
+            );
+            await this._clickControl(
+                ['Concluído', 'Done', 'Guardar', 'Save'],
+                '[role="dialog"]',
+                30000,
+            );
+            const [, response] = await Promise.all([editRequest, editResponse]);
+            const responseBody = await response.text();
+            let responsePayload;
+            try {
+                responsePayload = JSON.parse(responseBody);
+            } catch {
+                responsePayload = null;
+            }
+            if (!response.ok() || responsePayload?.media?.caption?.text !== caption) {
+                throw new Error(`Instagram rejected the caption edit (${response.status()})`);
+            }
+
+            const result = {
+                id: shortcode,
+                reference: `${kind}/${shortcode}`,
+                caption,
+                status: 'edited',
+                editedAt: new Date().toISOString(),
+            };
+            this.emit(Events.POST_EDITED, result);
+            return result;
+        } finally {
+            this.pupPage.off('request', editRequestHandler);
+            if (interceptionEnabled) await this.pupPage.setRequestInterception(false).catch(() => {});
+        }
     }
 
     async _publishPost(media, { caption = '', publishAt } = {}) {
