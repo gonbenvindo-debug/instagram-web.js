@@ -27,7 +27,7 @@ Requires [Node.js](https://nodejs.org/) 22.12 or later.
 ### Clone and start the server
 
 ```bash
-git clone https://github.com/atlanticsupport/instagram-web.js.git
+git clone https://github.com/gonbenvindo-debug/instagram-web.js.git
 cd instagram-web.js
 npm install
 npm start
@@ -38,7 +38,7 @@ The server will be available at `http://127.0.0.1:3000`.
 ### Install as a Git dependency
 
 ```bash
-npm install github:atlanticsupport/instagram-web.js
+npm install github:gonbenvindo-debug/instagram-web.js
 ```
 
 Then import the client:
