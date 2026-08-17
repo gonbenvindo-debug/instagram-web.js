@@ -13,6 +13,7 @@ exports.Events = Object.freeze({
     MESSAGE_CREATE: 'message_create',
     POST_PUBLISHED: 'post_published',
     POST_SCHEDULED: 'post_scheduled',
+    POST_EDITED: 'post_edited',
     POST_ERROR: 'post_error',
     POLL_ERROR: 'poll_error',
     DISCONNECTED: 'disconnected',

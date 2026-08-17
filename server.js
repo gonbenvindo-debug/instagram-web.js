@@ -24,7 +24,11 @@ function createApiServer(client, { apiKey } = {}) {
                 return send(401, { error: 'Unauthorized' });
             }
 
-            const route = `${request.method} ${new URL(request.url, 'http://localhost').pathname}`;
+            const pathname = decodeURIComponent(new URL(request.url, 'http://localhost').pathname);
+            const route = `${request.method} ${pathname}`;
+            const editMatch = request.method === 'PATCH'
+                ? pathname.match(/^\/(posts|reels)\/([A-Za-z0-9_-]+)$/)
+                : null;
             if (route === 'GET /health') {
                 const status = authStatus();
                 return send(200, {
@@ -47,7 +51,7 @@ function createApiServer(client, { apiKey } = {}) {
                 await client.logout();
                 return send(200, { status: 'unauthenticated' });
             }
-            if (!['POST /messages', 'POST /posts', 'POST /reels'].includes(route)) {
+            if (!['POST /messages', 'POST /posts', 'POST /reels'].includes(route) && !editMatch) {
                 return send(404, { error: 'Not found' });
             }
             if (authStatus() !== 'authenticated') {
@@ -77,6 +81,12 @@ function createApiServer(client, { apiKey } = {}) {
                     body: message.body,
                     timestamp: message.timestamp,
                 });
+            }
+
+            if (editMatch) {
+                if (typeof body.caption !== 'string') throw new TypeError('caption is required');
+                const result = await client.editPost(editMatch[2], { caption: body.caption });
+                return send(200, { type: editMatch[1] === 'reels' ? 'reel' : 'post', ...result });
             }
 
             const media = Array.isArray(body.media) ? body.media : [body.media];

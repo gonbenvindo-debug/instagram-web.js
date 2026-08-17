@@ -177,6 +177,10 @@ await client.schedulePost('./media/reel.mp4', {
     caption: 'Scheduled Reel',
     publishAt: '2026-08-18T17:00:00+01:00',
 });
+
+await client.editPost('DZdlVHQsQTP', {
+    caption: 'My updated caption',
+});
 ```
 
 Supported formats: AVIF, JPG/JPEG, PNG, HEIC, HEIF, MP4, and MOV. Captions must not exceed 2,200
@@ -218,6 +222,16 @@ Legend: ✅ supported · ⚠️ partial or interface-dependent support · ❌ no
 | `POST` | `/messages` | `{ target, content }` | Sends a text message |
 | `POST` | `/posts` | `{ media, caption, publishAt? }` | Publishes or schedules a Post |
 | `POST` | `/reels` | `{ media, caption, publishAt? }` | Publishes or schedules an MP4/MOV Reel |
+| `PATCH` | `/posts/:shortcode` | `{ caption }` | Edits the caption of an existing Post |
+| `PATCH` | `/reels/:shortcode` | `{ caption }` | Edits the caption of an existing Reel |
+
+The edit endpoints accept the Instagram shortcode from the post URL, for example:
+
+```bash
+curl -X PATCH http://127.0.0.1:3000/reels/DZdlVHQsQTP \
+  -H "Content-Type: application/json" \
+  -d '{"caption":"Updated caption"}'
+```
 
 The API accepts JSON payloads up to 100 kB and returns errors as JSON:
 
@@ -255,6 +269,7 @@ For security, the server only listens on `127.0.0.1`.
 | `message_create` | A message has been received or sent |
 | `post_published` | Instagram has confirmed a publication |
 | `post_scheduled` | Instagram has confirmed a scheduled publication |
+| `post_edited` | Instagram has confirmed a caption edit |
 | `post_error` | Publishing or scheduling has failed |
 | `poll_error` | Periodic message polling has failed |
 | `disconnected` | The browser has closed or the user has logged out |

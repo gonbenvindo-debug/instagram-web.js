@@ -207,6 +207,13 @@ class Client extends EventEmitter {
         return this.publishPost(media, { caption, publishAt: scheduledAt.toISOString() });
     }
 
+    editPost(post, { caption } = {}) {
+        return this._runPageTask(() => this._editPost(post, { caption })).catch((error) => {
+            this.emit(Events.POST_ERROR, error, { post, caption });
+            throw error;
+        });
+    }
+
     sendMessage(target, content) {
         return this._runPageTask(() => this._sendMessage(target, content));
     }
@@ -292,6 +299,66 @@ class Client extends EventEmitter {
             }
         }
         return mediaPaths;
+    }
+
+    async _editPost(post, { caption } = {}) {
+        if (!this.pupPage) throw new Error('Client is not initialized');
+        if (typeof caption !== 'string' || caption.length > 2200) {
+            throw new TypeError('caption must be a string with at most 2200 characters');
+        }
+
+        const reference = String(post ?? '').trim();
+        const match = reference.match(
+            /(?:https?:\/\/)?(?:www\.)?instagram\.com\/(p|reel)\/([A-Za-z0-9_-]+)\/?(?:[?#].*)?$/i,
+        );
+        const kind = match?.[1]?.toLowerCase() || 'p';
+        const shortcode = match?.[2] || (/^[A-Za-z0-9_-]+$/.test(reference) ? reference : null);
+        if (!shortcode) throw new TypeError('post must be an Instagram post URL or shortcode');
+
+        await this.pupPage.goto(`https://www.instagram.com/${kind}/${shortcode}/`, {
+            waitUntil: 'domcontentloaded',
+            timeout: 0,
+        });
+        await this._clickControl(['Mais opções', 'More options']);
+        await this._clickControl(['Editar', 'Edit'], '[role="menu"], [role="dialog"], body');
+
+        const captionBox = await this.pupPage.waitForSelector(
+            '[role="dialog"] textarea, [role="dialog"] [contenteditable="true"][role="textbox"], [role="dialog"] [contenteditable="true"]',
+            { visible: true, timeout: 15000 },
+        );
+        await captionBox.click({ clickCount: 3 });
+        await this.pupPage.keyboard.down('Control');
+        await this.pupPage.keyboard.press('A');
+        await this.pupPage.keyboard.up('Control');
+        await this.pupPage.keyboard.press('Backspace');
+        if (caption) await this.pupPage.keyboard.sendCharacter(caption);
+
+        await this._clickControl(
+            ['Concluído', 'Done', 'Guardar', 'Save'],
+            '[role="dialog"]',
+            30000,
+        );
+        await this.pupPage.waitForFunction(
+            (expected) => {
+                const text = document.body.innerText.toLowerCase();
+                const saved = /alterações guardadas|changes saved|post updated|publicação atualizada/.test(text);
+                const visibleDialog = [...document.querySelectorAll('[role="dialog"]')]
+                    .some((dialog) => dialog.getClientRects().length > 0);
+                return saved || (!visibleDialog && document.body.innerText.includes(expected));
+            },
+            { timeout: 60000 },
+            caption,
+        );
+
+        const result = {
+            id: shortcode,
+            reference: `${kind}/${shortcode}`,
+            caption,
+            status: 'edited',
+            editedAt: new Date().toISOString(),
+        };
+        this.emit(Events.POST_EDITED, result);
+        return result;
     }
 
     async _publishPost(media, { caption = '', publishAt } = {}) {
@@ -487,7 +554,7 @@ class Client extends EventEmitter {
         const normalizedLabels = labels.map((label) => label.toLowerCase());
         await this.pupPage.waitForFunction(
             ({ labels, scope }) =>
-                [...document.querySelectorAll(`${scope} a, ${scope} button, ${scope} [role="button"]`)].some(
+                [...document.querySelectorAll(`${scope} a, ${scope} button, ${scope} [role="button"], ${scope} [role="menuitem"]`)].some(
                     (element) => {
                         const label = (element.textContent || '').trim().toLowerCase();
                         const svgLabel = element.querySelector('svg[aria-label]')
@@ -507,7 +574,7 @@ class Client extends EventEmitter {
         await this.pupPage.evaluate(
             ({ labels, scope }) => {
                 const element = [
-                    ...document.querySelectorAll(`${scope} a, ${scope} button, ${scope} [role="button"]`),
+                    ...document.querySelectorAll(`${scope} a, ${scope} button, ${scope} [role="button"], ${scope} [role="menuitem"]`),
                 ].find((candidate) => {
                     const label = (candidate.textContent || '').trim().toLowerCase();
                     const svgLabel = candidate.querySelector('svg[aria-label]')

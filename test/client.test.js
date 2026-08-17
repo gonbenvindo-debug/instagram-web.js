@@ -77,6 +77,16 @@ test('delegates scheduling to Instagram with a normalized date', async () => {
     );
 });
 
+test('delegates caption edits for an existing Instagram post', async () => {
+    const client = new Client();
+    client._editPost = async (post, options) => ({ post, options });
+
+    assert.deepEqual(
+        await client.editPost('DZdlVHQsQTP', { caption: 'Nova legenda' }),
+        { post: 'DZdlVHQsQTP', options: { caption: 'Nova legenda' } },
+    );
+});
+
 test('serves message, post and Reel endpoints', async (t) => {
     const calls = [];
     const client = {
@@ -98,6 +108,7 @@ test('serves message, post and Reel endpoints', async (t) => {
         }),
         publishPost: async (media, options) => calls.push(['publish', media, options]) && { id: 'post-1' },
         schedulePost: async (media, options) => calls.push(['schedule', media, options]) && { id: 'post-2' },
+        editPost: async (post, options) => ({ id: post, ...options, status: 'edited' }),
     };
     const server = createApiServer(client);
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -105,6 +116,11 @@ test('serves message, post and Reel endpoints', async (t) => {
     const baseUrl = `http://127.0.0.1:${server.address().port}`;
     const post = (path, body) => fetch(`${baseUrl}${path}`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    const patch = (path, body) => fetch(`${baseUrl}${path}`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
     });
@@ -123,6 +139,10 @@ test('serves message, post and Reel endpoints', async (t) => {
         publishAt: '2026-08-18T16:00:00+01:00',
     })).status, 200);
     assert.equal((await post('/reels', { media: 'photo.jpg' })).status, 400);
+    const edited = await patch('/reels/DZdlVHQsQTP', { caption: 'Nova legenda' });
+    assert.equal(edited.status, 200);
+    assert.equal((await edited.json()).id, 'DZdlVHQsQTP');
+    assert.equal((await patch('/posts/DZdlVHQsQTP', {})).status, 400);
     client.schedulePost = async () => { throw new TypeError('publishAt must be a valid future date'); };
     assert.equal((await post('/posts', { media: 'photo.jpg', publishAt: '' })).status, 400);
     assert.deepEqual(calls, [
